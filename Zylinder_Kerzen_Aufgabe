@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oberfläche der Adventskerzen</title>
+<style>
+:root{--bg:#faf9f5;--card:#f0eee6;--text:#1f1e1d;--muted:#5f5e5a;--border:#c9c6bb;--accent:#185FA5;--accent-bg:#E6F1FB;--tile:#01BDF7;--tile-head:#00A0F7;--tile-on:#01BDF7;--tile-border:#0074B9;--tile-text:#00253D;--frame:#111111}
+@media (prefers-color-scheme:dark){:root{--bg:#1f1e1d;--card:#2a2927;--text:#ecebe6;--muted:#b4b2a9;--border:#55534e;--accent:#85B7EB;--accent-bg:#0C447C;--tile:#01BDF7;--tile-head:#00A0F7;--tile-on:#01BDF7;--tile-border:#0074B9;--tile-text:#00253D;--frame:#f2f2f2}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:720px;margin:0 auto;padding:24px 16px}
+h1{font-size:22px;font-weight:500;margin:0 0 16px}
+button{font:inherit;font-size:14px;color:var(--text);background:transparent;border:0.5px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover{background:var(--card)}
+.cbtn.on{background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
+.ts{font-size:12px;fill:var(--muted)}
+.leader{stroke:var(--muted);stroke-width:0.5;stroke-dasharray:3 3}
+.anim{transition:transform .9s ease,opacity .6s ease}
+.lbl{transition:opacity .5s ease}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--border);display:inline-block}
+.dot.on{background:var(--accent)}
+.panel{color:var(--tile-text);padding:1.1rem 1.4rem;min-height:130px}
+.panel p{margin:0;font-size:15px;line-height:1.7}
+b{font-weight:500}
+.ktab{width:100%;border-collapse:collapse;border-spacing:0;position:relative;isolation:isolate;table-layout:fixed;margin-bottom:12px;font-size:13px}
+.ktab th,.ktab td{padding:10px 8px;text-align:center;color:var(--tile-text)}
+.cbox{position:relative;isolation:isolate}
+.cbox>svg.frame{position:absolute;left:0;top:0;width:100%;height:100%;z-index:-1;overflow:visible;pointer-events:none}
+.frame rect{fill:var(--tile);stroke:var(--frame);stroke-width:3.5;filter:url(#crayon)}
+.khead>svg.frame rect{fill:var(--tile-head)}
+.khead{font-size:14px;font-weight:500;color:var(--tile-text);text-align:center;padding:10px 8px;margin-bottom:8px}
+.ktab td{padding:10px 8px}
+.gridframe{position:absolute;left:0;top:0;z-index:-1;overflow:visible;pointer-events:none}
+.gridframe rect{fill:var(--tile);stroke:var(--frame);stroke-width:3.5;filter:url(#crayon)}
+.gridframe line{stroke:var(--frame);stroke-width:1.6;filter:url(#crayonline)}
+.ktab button{width:100%;padding:6px 4px;color:var(--tile-text);border:2px solid transparent;background:transparent}
+.ktab button:hover{background:rgba(255,255,255,.25)}
+.ktab .cbtn.on{background:rgba(255,255,255,.35);color:var(--tile-text);border:2px solid var(--tile-text);font-weight:500}
+</style>
+</head>
+<body>
+<main>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="crayon" x="-5%" y="-20%" width="110%" height="140%"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="4"/></filter><filter id="crayonline" filterUnits="userSpaceOnUse" x="-20" y="-20" width="3000" height="3000"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="3"/></filter></svg>
+<h1>Oberfläche der Adventskerzen</h1>
+<div class="khead cbox">Kerze</div>
+<table class="ktab">
+<tr><td>1. Grösste Kerze</td><td>2. Zweitgrösste Kerze</td><td>3. Drittgrösste Kerze</td><td>4. Kleinste Kerze</td></tr>
+<tr>
+<td><button class="cbtn on" data-i="0">h = 20 cm</button></td>
+<td><button class="cbtn" data-i="1">h = 16 cm</button></td>
+<td><button class="cbtn" data-i="2">h = 12,8 cm</button></td>
+<td><button class="cbtn" data-i="3">h = 10,24 cm</button></td>
+</tr>
+</table>
+<svg width="100%" viewBox="0 0 680 350">
+<g id="bot" class="anim"><circle cx="0" cy="0" r="50" fill="#F09595" stroke="#A32D2D" stroke-width="0.5"/></g>
+<rect id="body" class="anim" x="380" y="100" width="100" height="200" fill="#E24B4A"/>
+<g id="man" class="anim" style="opacity:0"><rect id="manr" x="-157" y="0" width="314" height="200" fill="#F09595" stroke="#A32D2D" stroke-width="1"/></g>
+<g id="top" class="anim"><circle cx="0" cy="0" r="50" fill="#F09595" stroke="#A32D2D" stroke-width="0.5"/></g>
+<g id="flame" class="anim"><line x1="430" y1="100" x2="430" y2="92" stroke="#444441" stroke-width="2"/><path d="M430 94 Q440 78 430 58 Q420 78 430 94 Z" fill="#EF9F27"/></g>
+<g id="l1" class="lbl">
+<g id="ldeck" class="anim"><line class="leader" x1="375" y1="100" x2="270" y2="100"/><text class="ts" x="262" y="104" text-anchor="end">Deckfläche (Kreis)</text></g>
+<g id="lman" class="anim"><line class="leader" x1="380" y1="200" x2="270" y2="200"/><text class="ts" x="262" y="204" text-anchor="end">Mantel</text></g>
+<line class="leader" x1="380" y1="305" x2="270" y2="305"/><text class="ts" x="262" y="309" text-anchor="end">Grundfläche (Kreis)</text>
+</g>
+<g id="l2" class="lbl" style="opacity:0">
+<text class="ts" x="110" y="40" text-anchor="middle">Deckfläche</text>
+<text class="ts" x="110" y="335" text-anchor="middle">Grundfläche · je π·r²</text>
+<line x1="110" y1="150" x2="158" y2="150" stroke="#501313" stroke-width="1.5"/>
+<text x="134" y="143" text-anchor="middle" style="font-size:12px;fill:#501313">r=5</text>
+</g>
+<g id="l3" class="lbl" style="opacity:0">
+<text class="ts" x="430" y="325" text-anchor="middle">Breite = Umfang 2·π·r ≈ 31,42 cm</text>
+<text id="hlab" class="ts" x="595" y="204">h = 20 cm</text>
+</g>
+</svg>
+<div class="panel cbox"><p id="txt"></p></div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+<button id="prev">← Zurück</button>
+<div id="dots" style="display:flex;gap:6px"></div>
+<button id="next">Weiter →</button>
+</div>
+</main>
+<script>
+const H=[20,16,12.8,10.24],r=5,P=Math.PI;
+let s=0,c=0;
+const f=(x,d=2)=>x.toFixed(d).replace('.',',');
+const hf=x=>f(x,x%1?(Math.round(x*10)%1||String(x).split('.')[1].length>1?2:1):0);
+const $=id=>document.getElementById(id);
+const kreis=P*r*r,umf=2*P*r;
+const O=h=>2*kreis+umf*h;
+function texts(){const h=H[c];return [
+'Eine Kerze ist ein Zylinder. Ihre Oberfläche besteht aus drei Teilen: der Deckfläche oben, der Grundfläche unten und dem Mantel rundherum.',
+'Deckfläche und Grundfläche sind zwei gleich grosse Kreise mit r = 5 cm.<br>A = π · r² = π · (5 cm)² = π · 25 cm² ≈ <b>'+f(kreis)+' cm²</b><br>Beide zusammen: 2 · '+f(kreis)+' cm² = '+f(2*kreis)+' cm²',
+'Den Mantel schneidet man senkrecht auf und rollt ihn ab. Es entsteht ein Rechteck. Seine Breite ist der Kreisumfang U = 2 · π · 5 cm ≈ '+f(umf)+' cm, seine Höhe ist die Kerzenhöhe.<br>M = U · h = '+f(umf)+' cm · '+hf(h)+' cm ≈ <b>'+f(umf*h)+' cm²</b>',
+'Formel für eine Kerze:<br><b>O = 2 · π · r² + 2 · π · r · h</b><br>O<sub>'+(c+1)+'</sub> = '+f(2*kreis)+' cm² + '+f(umf)+' cm · '+hf(h)+' cm<br>O<sub>'+(c+1)+'</sub> = '+f(2*kreis)+' cm² + '+f(umf*h)+' cm² ≈ <b>'+f(O(h))+' cm²</b>',
+'Jetzt alle vier Kerzen zusammenzählen. Die kleine Zahl beim O ist die Nummer der Kerze (O<sub>1</sub> = grösste, O<sub>4</sub> = kleinste Kerze):<br>'+H.map((x,i)=>'O<sub>'+(i+1)+'</sub> = '+f(2*kreis)+' cm² + '+f(umf)+' cm · '+hf(x)+' cm ≈ '+f(O(x))+' cm²').join('<br>')+'<br>O<sub>total</sub> = O<sub>1</sub> + O<sub>2</sub> + O<sub>3</sub> + O<sub>4</sub><br>O<sub>total</sub> = '+H.map(x=>f(O(x))+' cm²').join(' + ')+'<br><b>O<sub>total</sub> ≈ '+f(H.reduce((a,x)=>a+O(x),0))+' cm²</b>'
+]}
+const N=5;
+for(let i=0;i<N;i++){const d=document.createElement('span');d.className='dot';$('dots').appendChild(d)}
+function draw(){
+const h=H[c]*10,ty=300-h;
+$('body').setAttribute('y',ty);$('body').setAttribute('height',h);
+$('manr').setAttribute('height',h);
+$('flame').style.transform='translateY('+(ty-100)+'px)';$('ldeck').style.transform='translateY('+(ty-100)+'px)';$('lman').style.transform='translateY('+((ty+300)/2-200)+'px)';
+$('hlab').textContent='h = '+hf(H[c])+' cm';$('hlab').setAttribute('y',ty+h/2+4);
+const split=s>=1,unr=s>=2;
+$('top').style.transform=split?'translate(110px,150px) scale(1,1)':'translate(430px,'+ty+'px) scale(1,0.2)';
+$('bot').style.transform=split?'translate(110px,265px) scale(1,1)':'translate(430px,300px) scale(1,0.2)';
+$('flame').style.opacity=split?0:1;
+$('body').style.opacity=unr?0:1;
+$('man').style.opacity=unr?1:0;
+$('man').style.transform='translate(430px,'+ty+'px) scale('+(unr?1:0.318)+',1)';
+$('l1').style.opacity=s==0?1:0;$('l2').style.opacity=split?1:0;$('l3').style.opacity=unr?1:0;
+$('txt').innerHTML=texts()[s];
+[...$('dots').children].forEach((d,i)=>d.classList.toggle('on',i==s));
+document.querySelectorAll('.cbtn').forEach(b=>b.classList.toggle('on',+b.dataset.i==c));
+}
+$('next').onclick=()=>{s=(s+1)%N;draw()};
+$('prev').onclick=()=>{s=(s-1+N)%N;draw()};
+document.querySelectorAll('.cbtn').forEach(b=>b.onclick=()=>{c=+b.dataset.i;draw()});
+['top','bot','man'].forEach(id=>$(id).style.transition='none');
+draw();
+requestAnimationFrame(()=>requestAnimationFrame(()=>['top','bot','man'].forEach(id=>$(id).style.transition='')));
+const NS='http://www.w3.org/2000/svg';
+(()=>{const t=document.querySelector('.ktab');const sv=document.createElementNS(NS,'svg');sv.setAttribute('class','gridframe');sv.setAttribute('aria-hidden','true');t.appendChild(sv);
+const fit=()=>{const w=t.offsetWidth,h=t.offsetHeight;sv.setAttribute('width',w);sv.setAttribute('height',h);sv.setAttribute('viewBox','0 0 '+w+' '+h);
+let g='<rect x="2.5" y="2.5" rx="6" width="'+Math.max(0,w-5)+'" height="'+Math.max(0,h-5)+'"/>';
+const r=t.rows;[...r[0].cells].slice(1).forEach(c=>{g+='<line x1="'+c.offsetLeft+'" y1="4" x2="'+c.offsetLeft+'" y2="'+(h-4)+'"/>'});
+for(let i=1;i<r.length;i++){const y=r[i].offsetTop;g+='<line x1="4" y1="'+y+'" x2="'+(w-4)+'" y2="'+y+'"/>'}
+sv.innerHTML=g;};fit();try{new ResizeObserver(fit).observe(t)}catch(e){addEventListener('resize',fit)}})();
+document.querySelectorAll('.cbox').forEach(el=>{
+const sv=document.createElementNS(NS,'svg');sv.setAttribute('class','frame');sv.setAttribute('aria-hidden','true');
+const rc=document.createElementNS(NS,'rect');rc.setAttribute('rx','6');sv.appendChild(rc);el.prepend(sv);
+const fit=()=>{const w=el.offsetWidth,h=el.offsetHeight;sv.setAttribute('viewBox','0 0 '+w+' '+h);rc.setAttribute('x',2.5);rc.setAttribute('y',2.5);rc.setAttribute('width',Math.max(0,w-5));rc.setAttribute('height',Math.max(0,h-5));};
+fit();try{new ResizeObserver(fit).observe(el)}catch(e){addEventListener('resize',fit)}
+});
+</script>
+</body>
+</html>
