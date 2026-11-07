@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zylinder zusammenbauen</title>
+<style>
+  :root { --accent: #00C4FF; --text: #111111; --muted: #555555; --bg: #FFFFFF; --line: #D5D9E0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 16px; }
+  canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #FFFFFF;
+           border: 1px solid var(--line); border-radius: 10px; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+  button { font: inherit; font-size: 15px; padding: 10px 16px; min-height: 44px; border-radius: 8px;
+           border: 1px solid #0090BF; background: var(--accent); color: #002A38; cursor: pointer; }
+  button.secondary { background: #FFFFFF; color: var(--text); border-color: #B8BEC9; }
+  button:focus-visible, input:focus-visible { outline: 3px solid #0090BF; outline-offset: 2px; }
+  input[type=range] { flex: 1 1 200px; accent-color: #0090BF; min-height: 44px; }
+  .time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; min-width: 7ch; text-align: right; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="c" width="1280" height="720" aria-label="Animation: Ein Zylindernetz aus Rechteck und zwei Kreisen wird zu einem Zylinder zusammengebaut"></canvas>
+  <div class="controls">
+    <button id="play" type="button">Pause</button>
+    <button id="restart" type="button" class="secondary">Von vorne</button>
+    <label for="scrub" style="position:absolute;left:-9999px">Zeitpunkt</label>
+    <input id="scrub" type="range" min="0" max="1000" value="0">
+    <span class="time" id="time">0,0 s</span>
+  </div>
+</div>
+<script>
+(function () {
+  // ---- Geometrie (r = 1,5 cm, h = 5 cm) ----
+  const r = 1.5, h = 5.0, U = 2 * Math.PI * r, N = 96, M = 96;
+  const BASE = [0, 196, 255];            // #00C4FF
+  // Phasen: Halten, Kippen, Einrollen, Kreise klappen, Aufrichten, Beschriftung, Halten
+  const segs = [1.8, 1.4, 3.5, 2.6, 2.4, 3.0, 1.0];
+  const TOTAL = segs.reduce((a, b) => a + b, 0);
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const W = 1280, H = 720;
+
+  function fitCanvas() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  const ease = x => { x = Math.min(Math.max(x, 0), 1); return x * x * (3 - 2 * x); };
+  function phases(t) {
+    const out = []; let acc = 0;
+    for (const d of segs) { out.push(ease((t - acc) / d)); acc += d; }
+    return out;
+  }
+  const rotx = a => { const c = Math.cos(a), s = Math.sin(a); return [[1,0,0],[0,c,-s],[0,s,c]]; };
+  const rotz = a => { const c = Math.cos(a), s = Math.sin(a); return [[c,-s,0],[s,c,0],[0,0,1]]; };
+  const mul = (A, B) => A.map((row, i) => [0,1,2].map(j => row[0]*B[0][j] + row[1]*B[1][j] + row[2]*B[2][j]));
+  const apply = (A, v) => [A[0][0]*v[0]+A[0][1]*v[1]+A[0][2]*v[2], A[1][0]*v[0]+A[1][1]*v[1]+A[1][2]*v[2], A[2][0]*v[0]+A[2][1]*v[1]+A[2][2]*v[2]];
+  const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+  const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+
+  function mantle(k) {
+    const xs = [], zs = [];
+    for (let i = 0; i <= N; i++) {
+      const u = (i / N) * U - U / 2;
+      if (k < 1e-6) { xs.push(u); zs.push(0); }
+      else { const R = 1 / k, th = u * k; xs.push(R * Math.sin(th)); zs.push(R * (1 - Math.cos(th))); }
+    }
+    return [xs, zs];
+  }
+  function cap(alpha, top) {
+    const pts = [];
+    for (let j = 0; j < M; j++) {
+      const ph = (j / M) * 2 * Math.PI;
+      const a = r * Math.sin(ph), b = r * (1 - Math.cos(ph));
+      const y = top ? h + b * Math.cos(alpha) : -b * Math.cos(alpha);
+      pts.push([a, y, b * Math.sin(alpha)]);
+    }
+    return pts;
+  }
+  function shade(g) {
+    const f = (g - 150) / 100;
+    let c;
+    if (f < 0.75) c = BASE.map(v => v * (0.72 + 0.28 * Math.min(f, 0.75) / 0.75));
+    else c = BASE.map(v => v + (255 - v) * ((f - 0.75) / 0.25) * 0.35);
+    return 'rgb(' + c.map(v => Math.round(Math.max(0, Math.min(255, v)))).join(',') + ')';
+  }
+
+  const L = (() => { const v = [-0.45, 0.55, 0.70]; const n = Math.hypot(...v); return v.map(x => x / n); })();
+
+  function draw(t) {
+    const p0 = phases(t);
+    const tilt = p0[1];
+    const p = [p0[0]].concat(p0.slice(2));      // [halten, rollen, kappen, aufrichten, beschriftung, halten]
+    const k = p[1] / r, al = p[2] * Math.PI / 2, stand = p[3], label = p[4];
+
+    const polys = [];
+    const [xs, zs] = mantle(k);
+    for (let i = 0; i < N; i++) {
+      const q = [[xs[i],0,zs[i]],[xs[i+1],0,zs[i+1]],[xs[i+1],h,zs[i+1]],[xs[i],h,zs[i]]];
+      const edges = [[0,1],[2,3]];
+      if (i === 0 && p[1] < 0.999) edges.push([3,0]);
+      if (i === N - 1 && p[1] < 0.999) edges.push([1,2]);
+      polys.push({ q, kind: 'm', edges });
+    }
+    for (const top of [false, true]) {
+      const c = cap(al, top);
+      polys.push({ q: c, kind: 'c', edges: c.map((_, j) => [j, (j + 1) % M]) });
+    }
+
+    const Rw = rotx(stand * Math.PI / 2);
+    const ctr = [0, h / 2, r * p[2] * 0.5 + r * p[1] * 0.5];
+    const elev = (90 - 35 * tilt - 30 * stand) * Math.PI / 180;
+    const azim = (-20 * stand) * Math.PI / 180;
+    const V = mul(rotx(-(Math.PI / 2 - elev)), rotz(azim));
+    const scale = 54 + 38 * stand;
+    const cx = W / 2, cy = H / 2 + 10;
+    const project = pt => apply(V, apply(Rw, sub(pt, ctr)));
+
+    const items = polys.map(({ q, kind, edges }) => {
+      const v = q.map(project);
+      let n = kind === 'm' ? cross(sub(v[1], v[0]), sub(v[2], v[0])) : cross(sub(v[1], v[0]), sub(v[Math.floor(M / 3)], v[0]));
+      const nn = Math.hypot(...n); n = nn > 1e-9 ? n.map(x => x / nn) : [0, 0, 1];
+      const d = Math.abs(n[0]*L[0] + n[1]*L[1] + n[2]*L[2]);
+      let g = n[2] > 0 ? 190 + 62 * d : 165 + 60 * d;
+      if (kind === 'c') g = 200 + 52 * d;
+      const depth = v.reduce((s, P) => s + P[2], 0) / v.length;
+      return { depth, v, g, edges, kind };
+    }).sort((a, b) => a.depth - b.depth);
+
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (const it of items) {
+      const pts = it.v.map(P => [cx + P[0] * scale, cy - P[1] * scale]);
+      const col = shade(it.g);
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();   // Nähte schliessen
+      ctx.strokeStyle = '#111111'; ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      for (const [a, b] of it.edges) { ctx.moveTo(pts[a][0], pts[a][1]); ctx.lineTo(pts[b][0], pts[b][1]); }
+      ctx.stroke();
+    }
+
+    if (label > 0) {
+      const P = pt => { const v = project(pt); return [cx + v[0] * scale, cy - v[1] * scale]; };
+      ctx.save(); ctx.globalAlpha = label;
+      ctx.strokeStyle = '#111111'; ctx.fillStyle = '#111111';
+      const c0 = P([0, h, r]), c1 = P([r, h, r]);
+      ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(c0[0], c0[1]); ctx.lineTo(c1[0], c1[1]); ctx.stroke();
+      ctx.beginPath(); ctx.arc(c0[0], c0[1], 3.5, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = 'italic 44px "DejaVu Serif", Georgia, "Times New Roman", serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('r', (c0[0] + c1[0]) / 2, (c0[1] + c1[1]) / 2 - 30);
+      const b0 = P([r + 0.55, 0, r]), b1 = P([r + 0.55, h, r]);
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(b0[0], b0[1]); ctx.lineTo(b1[0], b1[1]);
+      for (const b of [b0, b1]) { ctx.moveTo(b[0] - 10, b[1]); ctx.lineTo(b[0] + 10, b[1]); }
+      ctx.stroke();
+      ctx.fillText('h', (b0[0] + b1[0]) / 2 + 34, (b0[1] + b1[1]) / 2);
+      ctx.restore();
+    }
+  }
+
+  // ---- Steuerung ----
+  const playBtn = document.getElementById('play');
+  const restartBtn = document.getElementById('restart');
+  const scrub = document.getElementById('scrub');
+  const timeEl = document.getElementById('time');
+  let t = 0, playing = true, last = null;
+
+  function render() {
+    draw(t);
+    scrub.value = Math.round((t / TOTAL) * 1000);
+    timeEl.textContent = t.toFixed(1).replace('.', ',') + ' s';
+    playBtn.textContent = playing ? 'Pause' : (t >= TOTAL ? 'Nochmals' : 'Abspielen');
+  }
+  function loop(now) {
+    if (playing) {
+      if (last !== null) t += (now - last) / 1000;
+      if (t >= TOTAL) { t = TOTAL; playing = false; }
+      render();
+    }
+    last = now;
+    requestAnimationFrame(loop);
+  }
+  playBtn.addEventListener('click', () => {
+    if (!playing && t >= TOTAL) t = 0;
+    playing = !playing; last = null; render();
+  });
+  restartBtn.addEventListener('click', () => { t = 0; playing = true; last = null; render(); });
+  scrub.addEventListener('input', () => { playing = false; t = (scrub.value / 1000) * TOTAL; render(); });
+  window.addEventListener('resize', () => { fitCanvas(); render(); });
+
+  window.seekTo = s => { playing = false; t = s; render(); };   // für Tests
+  fitCanvas(); render(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
