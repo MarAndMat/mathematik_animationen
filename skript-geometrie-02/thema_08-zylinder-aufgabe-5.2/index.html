@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Etikette auf der Dose</title>
+<style>
+  :root { --accent:#00C4FF; --accent-dark:#0090BF; --text:#111318; --muted:#4A4F5C; --line:#D5D9E0; --panel:#F5F8FB; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#FFFFFF; color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:4px 0 14px; font-weight:650; }
+  .grid { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
+  .stage { flex: 999 1 560px; min-width:0; }
+  canvas { display:block; width:100%; height:auto; aspect-ratio: 16 / 10; background:#FFFFFF; border:1px solid var(--line); border-radius:10px; }
+  .panel { flex: 1 1 280px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .panel h2 { font-size:17px; margin:0 0 8px; }
+  .panel h2 + ul { margin-bottom:14px; }
+  ul { margin:0; padding-left:20px; }
+  li { margin:0 0 8px; font-size:16px; line-height:1.45; }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:6px; border:1px solid rgba(0,0,0,.25); }
+  .controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
+  button { font:inherit; font-size:15px; padding:10px 16px; min-height:44px; border-radius:8px; border:1px solid var(--accent-dark); background:var(--accent); color:#002A38; cursor:pointer; }
+  button.secondary { background:#FFFFFF; color:var(--text); border-color:#B8BEC9; }
+  button:focus-visible, input:focus-visible { outline:3px solid var(--accent-dark); outline-offset:2px; }
+  input[type=range] { flex:1 1 200px; accent-color:var(--accent-dark); min-height:44px; }
+  .time { font-variant-numeric: tabular-nums; color:var(--muted); font-size:14px; min-width:7ch; text-align:right; }
+  .sr { position:absolute; left:-9999px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Etikette auf der Dose</h1>
+  <div class="grid">
+    <div class="stage">
+      <canvas id="c" width="960" height="600" aria-label="Animation: Eine rechteckige Etikette wird um eine zylindrische Dose geklebt, das Ende überlappt den Anfang um 1 cm"></canvas>
+      <div class="controls">
+        <button id="play" type="button">Pause</button>
+        <button id="restart" type="button" class="secondary">Von vorne</button>
+        <label for="scrub" class="sr">Zeitpunkt</label>
+        <input id="scrub" type="range" min="0" max="1000" value="0">
+        <span class="time" id="time">0,0 s</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Gegeben</h2>
+      <ul>
+        <li>Durchmesser der Dose: d&nbsp;=&nbsp;10&nbsp;cm</li>
+        <li>Höhe der Dose: h&nbsp;=&nbsp;14&nbsp;cm</li>
+        <li>Rand oben und unten: je&nbsp;5&nbsp;mm</li>
+        <li><span class="sw" style="background:#FF8A3D"></span>Überlappung: 1&nbsp;cm</li>
+      </ul>
+      <h2>Gesucht</h2>
+      <ul>
+        <li>Länge der Etikette</li>
+        <li>Breite der Etikette</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const D = Math.PI / 180;
+  const r = 5, H = 14, U = Math.PI * 2 * r, L = U + 1, Y0 = 0.5, Y1 = 13.5;
+  const TH0 = -40 * D, DIR = -1;            // Start vorne links, Wickelrichtung nach links
+  const N = 120, M = 220;                   // Unterteilungen Dose / Etikette
+  const T = { canDims: [0.3, 1.0], zoomOut: [1.2, 2.2], fly: [1.8, 3.0], overlap: [3.0, 3.6],
+              wrap: [3.8, 9.3], zoomIn: [6.0, 9.6], margins: [9.6, 10.4], end: 13.5 };
+
+  const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+  const norm = a => { const n = Math.hypot(a[0], a[1], a[2]); return [a[0]/n, a[1]/n, a[2]/n]; };
+  const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
+  const ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const ph = (iv, t) => ease((t - iv[0]) / (iv[1] - iv[0]));
+
+  const az = -18 * D, el = 20 * D;
+  const VD = [Math.sin(az)*Math.cos(el), Math.sin(el), -Math.cos(az)*Math.cos(el)];
+  const RV = norm(cross(VD, [0, 1, 0])), UV = cross(RV, VD);
+  const LIGHT = norm([-0.4, 0.75, -0.55]);
+  const HALF = norm([LIGHT[0]+VD[0], LIGHT[1]+VD[1], LIGHT[2]+VD[2]]);
+  const proj = p => [dot(p, RV), dot(p, UV), dot(p, VD)];
+
+  const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+  const W = 960, HH = 600;
+
+  // ---------- Geometrie ----------
+  const canPt = (th, y, rad) => [rad * Math.sin(th), y, -rad * Math.cos(th)];
+  const lift = s => r + 0.05 + 0.10 * clamp((s - (U - 0.5)) / 0.5, 0, 1);
+  function labelPt(s, y, w, off) {
+    let p;
+    if (s <= w) p = canPt(TH0 + DIR * s / r, y, lift(s));
+    else {
+      const th = TH0 + DIR * w / r, P = canPt(th, y, lift(w)), Tg = [DIR * Math.cos(th), 0, DIR * Math.sin(th)];
+      p = [P[0] + Tg[0] * (s - w), y, P[2] + Tg[2] * (s - w)];
+    }
+    return [p[0] + off[0], p[1] + off[1], p[2] + off[2]];
+  }
+
+  // ---------- Einpassen (zwei Ansichten: nur Dose / mit flacher Etikette) ----------
+  function fitFor(points) {
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (const p of points) { const q = proj(p); x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
+    const mx = 120, mt = 70, mb = 40;
+    const sc = Math.min((W - 2*mx) / (x1 - x0), (HH - mt - mb) / (y1 - y0));
+    return { sc, ox: W/2 - sc*(x0 + x1)/2, oy: mt + (HH - mt - mb)/2 + sc*(y0 + y1)/2 };
+  }
+  const canPts = [];
+  for (let i = 0; i < 48; i++) { const th = i / 48 * 2 * Math.PI; canPts.push(canPt(th, 0, r), canPt(th, H, r)); }
+  canPts.push([r + 2, 0, 0], [r + 2, H, 0], [-r - 1.5, 0, 0]);
+  const widePts = canPts.slice();
+  for (let i = 0; i <= 40; i++) { const s = i / 40 * L; widePts.push(labelPt(s, Y0, 0, [0,0,0]), labelPt(s, Y1, 0, [0,0,0])); }
+  const FIT_CAN = fitFor(canPts), FIT_WIDE = fitFor(widePts);
+  let SC = 1, OX = 0, OY = 0;
+  const scr = q => [OX + q[0] * SC, OY - q[1] * SC];
+  const S = p => scr(proj(p));
+
+  // ---------- Farben ----------
+  function metal(n) {
+    const diff = Math.max(0, dot(n, LIGHT)), sp = Math.pow(Math.max(0, dot(n, HALF)), 22);
+    const c = 120 + 85 * diff + 60 * sp;
+    return `rgb(${Math.round(c - 4)},${Math.round(c)},${Math.round(c + 8)})`;
+  }
+  function paper(n, front, orange) {
+    const diff = Math.max(0, dot(front ? n : n.map(v => -v), LIGHT));
+    const k = 0.62 + 0.38 * diff;
+    const base = !front ? [236, 240, 245] : orange ? [255, 138, 61] : [0, 196, 255];
+    return 'rgb(' + base.map(v => Math.round(Math.min(255, v * k * 0.85 + 255 * 0.15))).join(',') + ')';
+  }
+
+  function poly(pts) { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); }
+  function line(a, b, col, w, dash) { ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.setLineDash(dash || []); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.restore(); }
+  function text(str, x, y, align, alpha) {
+    ctx.save(); ctx.globalAlpha = alpha;
+    ctx.font = '600 18px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
+    const w = ctx.measureText(str).width + 14;
+    const bx = align === 'left' ? x - 7 : align === 'right' ? x - w + 7 : x - w/2;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.strokeStyle = '#B8BEC9'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(bx, y - 14, w, 28, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#111318'; ctx.fillText(str, x, y + 1);
+    ctx.restore();
+  }
+  function dimLine(a, b, alpha) {          // Masslinie mit Endstrichen (Bildschirmkoordinaten)
+    ctx.save(); ctx.globalAlpha = alpha;
+    const dx = b[0]-a[0], dy = b[1]-a[1], l = Math.hypot(dx, dy) || 1, nx = -dy/l*7, ny = dx/l*7;
+    ctx.strokeStyle = '#111318'; ctx.lineWidth = 1.8; ctx.beginPath();
+    ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+    ctx.moveTo(a[0]-nx, a[1]-ny); ctx.lineTo(a[0]+nx, a[1]+ny);
+    ctx.moveTo(b[0]-nx, b[1]-ny); ctx.lineTo(b[0]+nx, b[1]+ny);
+    ctx.stroke(); ctx.restore();
+  }
+
+  function draw(t) {
+    const zIn = ph(T.zoomIn, t), zOut = ph(T.zoomOut, t) * (1 - zIn);
+    SC = FIT_CAN.sc + (FIT_WIDE.sc - FIT_CAN.sc) * zOut;
+    OX = FIT_CAN.ox + (FIT_WIDE.ox - FIT_CAN.ox) * zOut;
+    OY = FIT_CAN.oy + (FIT_WIDE.oy - FIT_CAN.oy) * zOut;
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, HH);
+
+    const items = [];
+    // Dose: Mantelstreifen
+    const vis = [];
+    for (let i = 0; i < N; i++) { const th = (i + 0.5) / N * 2 * Math.PI; vis[i] = dot([Math.sin(th), 0, -Math.cos(th)], VD) > 0; }
+    for (let i = 0; i < N; i++) {
+      if (!vis[i]) continue;
+      const a = i / N * 2 * Math.PI, b = (i + 1) / N * 2 * Math.PI, m = (a + b) / 2;
+      const n = [Math.sin(m), 0, -Math.cos(m)];
+      const P = [canPt(a, 0, r), canPt(b, 0, r), canPt(b, H, r), canPt(a, H, r)];
+      items.push({ depth: proj(canPt(m, H/2, r))[2], draw: () => {
+        const s = P.map(S), col = metal(n);
+        poly(s); ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke();
+        line(s[0], s[1], '#2B3240', 1.8);
+        if (!vis[(i - 1 + N) % N]) line(s[0], s[3], '#2B3240', 1.8);
+        if (!vis[(i + 1) % N]) line(s[1], s[2], '#2B3240', 1.8);
+      }});
+    }
+    // Deckel
+    items.push({ depth: proj([0, H, 0])[2], draw: () => {
+      const o = [], inn = [];
+      for (let i = 0; i < 96; i++) { const th = i / 96 * 2 * Math.PI; o.push(S(canPt(th, H, r))); inn.push(S(canPt(th, H - 0.15, r - 0.55))); }
+      poly(o); ctx.fillStyle = metal([0, 1, 0]); ctx.fill(); ctx.strokeStyle = '#2B3240'; ctx.lineWidth = 1.8; ctx.stroke();
+      poly(inn); ctx.fillStyle = 'rgb(186,192,202)'; ctx.fill(); ctx.strokeStyle = '#7A8292'; ctx.lineWidth = 1.2; ctx.stroke();
+    }});
+
+    // Etikette
+    const fly = ph(T.fly, t);
+    if (fly > 0) {
+      const w = ph(T.wrap, t) * L;
+      const off = [0, 0, -6 * (1 - fly)];
+      const ss = [];
+      for (let i = 0; i <= M; i++) ss.push(i / M * L);
+      if (!ss.some(v => Math.abs(v - U) < 1e-6)) { ss.push(U); ss.sort((a, b) => a - b); }
+      for (let k = 0; k < ss.length - 1; k++) {
+        const s0 = ss[k], s1 = ss[k + 1], sm = (s0 + s1) / 2;
+        const P = [labelPt(s0, Y0, w, off), labelPt(s1, Y0, w, off), labelPt(s1, Y1, w, off), labelPt(s0, Y1, w, off)];
+        const tg = norm([P[1][0]-P[0][0], 0, P[1][2]-P[0][2]]);
+        const n = cross([0, 1, 0], tg).map(v => v * DIR); // nach aussen (bedruckte Seite)
+        const front = dot(n, VD) > 0, orange = sm > U;
+        const first = k === 0, last = k === ss.length - 2;
+        items.push({ depth: proj(labelPt(sm, (Y0 + Y1)/2, w, off))[2] + (sm <= w ? 0.6 : 0) + (orange ? 0.05 : 0), draw: () => {
+          ctx.save(); ctx.globalAlpha = Math.min(1, fly * 1.5);
+          const s = P.map(S), col = paper(n, front, orange);
+          poly(s); ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke();
+          const ec = orange ? '#8A3A0B' : '#0B3A52';
+          line(s[0], s[1], ec, 1.6); line(s[3], s[2], ec, 1.6);
+          if (first) line(s[0], s[3], ec, 1.6);
+          if (last) line(s[1], s[2], ec, 1.6);
+          if (Math.abs(s0 - U) < 1e-6) line(s[0], s[3], '#8A3A0B', 1.4, [5, 4]);
+          ctx.restore();
+        }});
+      }
+    }
+    items.sort((a, b) => a.depth - b.depth);
+    for (const it of items) it.draw();
+
+    // ---------- Beschriftungen (nur Masse) ----------
+    const aDim = ph(T.canDims, t);
+    if (aDim > 0) {
+      const a = S([-r, H, 0]), b = S([r, H, 0]);
+      dimLine(a, b, aDim);
+      text('d = 10 cm', (a[0] + b[0]) / 2, Math.min(a[1], b[1]) - 26, 'center', aDim);
+      const aH = aDim * (1 - clamp((t - 1.8) / 0.6, 0, 1) + clamp((t - 9.4) / 0.6, 0, 1));
+      const h0 = S([r + 2, 0, 0]), h1 = S([r + 2, H, 0]);
+      if (aH > 0) {
+        dimLine(h0, h1, aH);
+        line(S([r + 0.3, 0, 0]), h0, `rgba(17,19,24,${0.35 * aH})`, 1, [3, 4]);
+        line(S([r + 0.3, H, 0]), h1, `rgba(17,19,24,${0.35 * aH})`, 1, [3, 4]);
+        text('h = 14 cm', h0[0] + 14, (h0[1] + h1[1]) / 2, 'left', aH);
+      }
+    }
+    if (fly > 0.6) {
+      const ao = clamp((t - T.overlap[0]) / (T.overlap[1] - T.overlap[0]), 0, 1) * (1 - clamp((t - T.wrap[0] - 0.4) / 0.5, 0, 1) + clamp((t - T.wrap[1]) / 0.5, 0, 1));
+      if (ao > 0) {
+        const w = ph(T.wrap, t) * L, off = [0, 0, -6 * (1 - fly)];
+        const c = S(labelPt(U + 0.5, H / 2, w, off));
+        const tx = Math.max(c[0] - 80, 190), ty = Math.max(c[1] - 50, 26);
+        ctx.save(); ctx.globalAlpha = ao;
+        ctx.strokeStyle = '#8A3A0B'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(tx + 6, ty + 10); ctx.lineTo(c[0], c[1]); ctx.stroke();
+        ctx.fillStyle = '#8A3A0B'; ctx.beginPath(); ctx.arc(c[0], c[1], 3.5, 0, 2 * Math.PI); ctx.fill();
+        ctx.restore();
+        text('1 cm Überlappung', tx, ty, 'right', ao);
+      }
+    }
+    const am = ph(T.margins, t);
+    if (am > 0) {
+      const x = -r - 1.4;
+      const a0 = S([x, 0, 0]), a1 = S([x, Y0, 0]), b0 = S([x, Y1, 0]), b1 = S([x, H, 0]);
+      for (const [p, q] of [[a0, a1], [b0, b1]]) dimLine(p, q, am);
+      for (const y of [0, Y0, Y1, H]) line(S([-r - 0.3, y, 0]), S([x, y, 0]), `rgba(17,19,24,${0.35 * am})`, 1, [3, 4]);
+      text('5 mm', b0[0] - 14, (b0[1] + b1[1]) / 2 - 16, 'right', am);
+      text('5 mm', a0[0] - 14, (a0[1] + a1[1]) / 2 + 16, 'right', am);
+    }
+    if (fly > 0 && t < T.wrap[0] + 1.2) {
+      const al = Math.min(1, fly) * (1 - clamp((t - T.wrap[0]) / 1.2, 0, 1));
+      const c = S(labelPt(L * 0.55, Y1, 0, [0, 0, -6 * (1 - fly)]));
+      text('Etikette', c[0], c[1] - 24, 'center', al);
+    }
+    if (t < T.fly[0] + 0.6) {
+      const c = S([0, H, 0]);
+      text('Dose', c[0] + 120, c[1] - 60, 'center', 1 - clamp((t - T.fly[0]) / 0.6, 0, 1));
+    }
+  }
+
+  // ---------- Steuerung ----------
+  const playBtn = document.getElementById('play'), restartBtn = document.getElementById('restart');
+  const scrub = document.getElementById('scrub'), timeEl = document.getElementById('time');
+  const TOTAL = T.end;
+  let t = 0, playing = true, last = null;
+  function fitCanvas() { const dpr = Math.min(window.devicePixelRatio || 1, 2); canvas.width = W * dpr; canvas.height = HH * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  function render() {
+    draw(t);
+    scrub.value = Math.round(t / TOTAL * 1000);
+    timeEl.textContent = t.toFixed(1).replace('.', ',') + ' s';
+    playBtn.textContent = playing ? 'Pause' : (t >= TOTAL ? 'Nochmals' : 'Abspielen');
+  }
+  function loop(now) {
+    if (playing) { if (last !== null) t += (now - last) / 1000; if (t >= TOTAL) { t = TOTAL; playing = false; } render(); }
+    last = now; requestAnimationFrame(loop);
+  }
+  playBtn.addEventListener('click', () => { if (!playing && t >= TOTAL) t = 0; playing = !playing; last = null; render(); });
+  restartBtn.addEventListener('click', () => { t = 0; playing = true; last = null; render(); });
+  scrub.addEventListener('input', () => { playing = false; t = scrub.value / 1000 * TOTAL; render(); });
+  window.addEventListener('resize', () => { fitCanvas(); render(); });
+  window.seekTo = s => { playing = false; t = s; render(); };
+  fitCanvas(); render(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
