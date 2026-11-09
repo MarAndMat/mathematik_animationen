@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kreisumfang: U = d · π = 2 · r · π</title>
+<style>
+  :root { --accent:#00C4FF; --accent-dark:#0090BF; --text:#111318; --muted:#4A4F5C; --line:#D5D9E0; --panel:#F5F8FB; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#FFFFFF; color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:4px 0 14px; font-weight:650; }
+  .grid { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
+  .stage { flex: 999 1 560px; min-width:0; }
+  canvas { display:block; width:100%; height:auto; aspect-ratio: 16 / 10; background:#FFFFFF; border:1px solid var(--line); border-radius:10px; }
+  .panel { flex: 1 1 290px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .panel h2 { font-size:17px; margin:0 0 8px; }
+  .note { font-size:14px; color:var(--muted); margin:0 0 10px; }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:4px; border:1px solid rgba(0,0,0,.25); }
+  ol { margin:0; padding-left:20px; }
+  li { margin:0 0 10px; font-size:16px; line-height:1.45; opacity:0; transform: translateY(4px); transition: opacity .35s, transform .35s; }
+  li.shown { opacity:.75; transform:none; }
+  li.current { opacity:1; }
+  li strong { font-size:18px; }
+  .controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
+  button { font:inherit; font-size:15px; padding:10px 16px; min-height:44px; border-radius:8px; border:1px solid var(--accent-dark); background:var(--accent); color:#002A38; cursor:pointer; }
+  button.secondary { background:#FFFFFF; color:var(--text); border-color:#B8BEC9; }
+  button:focus-visible, input:focus-visible { outline:3px solid var(--accent-dark); outline-offset:2px; }
+  input[type=range] { flex:1 1 200px; accent-color:var(--accent-dark); min-height:44px; }
+  .time { font-variant-numeric: tabular-nums; color:var(--muted); font-size:14px; min-width:7ch; text-align:right; }
+  .sr { position:absolute; left:-9999px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Kreisumfang: U = d · π = 2 · r · π</h1>
+  <div class="grid">
+    <div class="stage">
+      <canvas id="c" width="960" height="600" aria-label="Animation: Ein Kreis wird abgerollt, der Umfang ist rund 3,14 mal so lang wie der Durchmesser"></canvas>
+      <div class="controls">
+        <button id="play" type="button">Pause</button>
+        <button id="restart" type="button" class="secondary">Von vorne</button>
+        <label for="scrub" class="sr">Zeitpunkt</label>
+        <input id="scrub" type="range" min="0" max="1000" value="0">
+        <span class="time" id="time">0,0 s</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>So entsteht die Formel</h2>
+      <p class="note"><span class="sw" style="background:#FF8A3D"></span>Umfang U &nbsp; <span class="sw" style="background:#0090BF"></span>Durchmesser d</p>
+      <ol id="steps"></ol>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const W = 960, H = 600, R = 100, X0 = 140, GY = 290, U = 2 * Math.PI * R, D = 2 * R;
+  const BLUE = '#0090BF', ORANGE = '#F07020', INK = '#111318', GREY = '#9AA0AA';
+  const T = { circle:[0.2,1.2], radius:[1.0,1.8], dia:[1.8,2.6], hideLbl:[3.0,3.5], roll:[3.6,8.8], dia2:[9.0,9.5],
+              copy0:9.6, copyDur:1.0, copyGap:0.7, rest:[12.1,12.8], f1:[12.9,13.6], f2:[14.1,14.8], f3:[15.3,16.0], end:18 };
+  const STEPS = [
+    [0.4, 'Ein Kreis mit dem Radius r und dem Durchmesser d = 2 · r.'],
+    [3.6, 'Wir rollen den Kreis einmal ab. Die orange Strecke ist genau der Umfang U.'],
+    [9.0, 'Wie oft passt der Durchmesser d in den Umfang?'],
+    [12.1, 'Dreimal ganz, dazu ein kleines Stück: etwa 0,14 · d.'],
+    [12.9, 'U ≈ 3 · d + 0,14 · d ≈ d · 3,14'],
+    [14.1, '<strong>Die Zahl 3,14… heisst π.<br>U = d · π</strong>'],
+    [15.3, '<strong>Weil d = 2 · r ist:<br>U = 2 · r · π</strong>']
+  ];
+  const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+  const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
+  const ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const ph = (iv, t) => ease((t - iv[0]) / (iv[1] - iv[0]));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  function label(str, x, y, opt) {
+    opt = opt || {};
+    ctx.save(); ctx.globalAlpha = opt.alpha == null ? 1 : opt.alpha;
+    let f = (opt.weight || 600) + ' ' + (opt.size || 22) + 'px ' + (opt.serif ? '"Times New Roman", Georgia, serif' : 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif');
+    if (opt.italic) f = 'italic ' + f;
+    ctx.font = f; ctx.textAlign = opt.align || 'center'; ctx.textBaseline = 'middle';
+    if (opt.box) {
+      const w = ctx.measureText(str).width + 16;
+      const bx = opt.align === 'left' ? x - 8 : opt.align === 'right' ? x - w + 8 : x - w / 2;
+      ctx.fillStyle = opt.fill || 'rgba(255,255,255,0.94)'; ctx.strokeStyle = opt.stroke || '#B8BEC9'; ctx.lineWidth = opt.stroke ? 2 : 1;
+      ctx.beginPath(); ctx.roundRect(bx, y - (opt.size || 22) * 0.9, w, (opt.size || 22) * 1.8, 8); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = opt.color || INK; ctx.fillText(str, x, y + 1);
+    ctx.restore();
+  }
+  function seg(x1, y1, x2, y2, col, w, alpha, ticks) {
+    ctx.save(); ctx.globalAlpha = alpha == null ? 1 : alpha; ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    if (ticks) { ctx.moveTo(x1, y1 - 9); ctx.lineTo(x1, y1 + 9); ctx.moveTo(x2, y2 - 9); ctx.lineTo(x2, y2 + 9); }
+    ctx.stroke(); ctx.restore();
+  }
+
+  function draw(t) {
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+    const roll = ph(T.roll, t), th = roll * 2 * Math.PI;
+    const cx = X0 + R * th, cy = GY - R;
+
+    // Boden
+    seg(30, GY, W - 30, GY, '#C9CED8', 2);
+    // abgerollte Strecke
+    if (roll > 0) seg(X0, GY, X0 + R * th, GY, ORANGE, 6);
+    // Kreis
+    const pc = ph(T.circle, t);
+    ctx.save(); ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ctx.globalAlpha = 0.35 + 0.65 * (1 - roll);
+    ctx.beginPath(); ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * pc); ctx.stroke(); ctx.restore();
+    if (pc >= 1) {
+      ctx.save(); ctx.strokeStyle = ORANGE; ctx.lineWidth = 6; ctx.globalAlpha = Math.min(1, ph([T.hideLbl[0], T.roll[0]], t) * 1);
+      ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI / 2 + th, Math.PI / 2 + 2 * Math.PI); ctx.stroke(); ctx.restore();
+    }
+    // Startpunkt / Rollpunkt
+    if (pc > 0) {
+      const sp = ph(T.hideLbl, t);
+      if (sp > 0) {
+        const a = Math.PI / 2 + th, px = cx + R * Math.cos(a), py = cy + R * Math.sin(a);
+        ctx.save(); ctx.globalAlpha = sp * (1 - ph([T.roll[1], T.roll[1] + 0.4], t)); ctx.fillStyle = INK;
+        ctx.beginPath(); ctx.arc(px, py, 6, 0, 2 * Math.PI); ctx.fill(); ctx.restore();
+        ctx.save(); ctx.globalAlpha = sp; ctx.fillStyle = INK; ctx.beginPath(); ctx.moveTo(X0, GY + 4); ctx.lineTo(X0 - 7, GY + 16); ctx.lineTo(X0 + 7, GY + 16); ctx.closePath(); ctx.fill(); ctx.restore();
+        if (roll > 0) { ctx.save(); ctx.globalAlpha = roll; ctx.fillStyle = INK; const ex = X0 + R * th; ctx.beginPath(); ctx.moveTo(ex, GY + 4); ctx.lineTo(ex - 7, GY + 16); ctx.lineTo(ex + 7, GY + 16); ctx.closePath(); ctx.fill(); ctx.restore(); }
+      }
+      ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2 * Math.PI); ctx.fill();
+    }
+    // r und d am Anfang
+    const lblA = 1 - ph(T.hideLbl, t);
+    const pr = ph(T.radius, t) * lblA, pd = ph(T.dia, t) * lblA;
+    if (pr > 0) {
+      seg(cx, cy, cx + R * Math.cos(-Math.PI / 4), cy + R * Math.sin(-Math.PI / 4), '#C23F1C', 3.5, pr);
+      label('r', cx + R * 0.42, cy - R * 0.62, { alpha: pr, color: '#C23F1C', serif: true, italic: true, size: 30, weight: 400 });
+    }
+    if (pd > 0) {
+      seg(cx - R, cy, cx + R, cy, BLUE, 4, pd);
+      label('d', cx - R * 0.5, cy + 22, { alpha: pd, color: BLUE, serif: true, italic: true, size: 30, weight: 400 });
+    }
+    // Umfang-Beschriftung
+    const pu = ph([T.roll[1] - 0.4, T.roll[1] + 0.2], t);
+    if (pu > 0) label('Umfang U', X0 + U / 2 - 40, GY - 26, { alpha: pu, color: ORANGE, size: 22, weight: 700 });
+
+    // Durchmesser auf dem Endkreis + Kopien
+    const p2 = ph(T.dia2, t);
+    const LY = GY + 46;
+    if (p2 > 0) {
+      seg(cx - R, cy, cx + R, cy, BLUE, 4, p2);
+      label('d', cx, cy - 20, { alpha: p2, color: BLUE, serif: true, italic: true, size: 30, weight: 400 });
+    }
+    for (let k = 0; k < 3; k++) {
+      const s = T.copy0 + k * T.copyGap, pk = ph([s, s + T.copyDur], t);
+      if (pk <= 0) continue;
+      const x1 = lerp(cx - R, X0 + k * D, pk), x2 = lerp(cx + R, X0 + (k + 1) * D, pk), y = lerp(cy, LY, pk);
+      seg(x1, y, x2, y, BLUE, 5, 1, pk > 0.95);
+      if (pk > 0.6) label('d', (x1 + x2) / 2, LY + 26, { alpha: (pk - 0.6) / 0.4, color: BLUE, serif: true, italic: true, size: 28, weight: 400 });
+    }
+    // Rest
+    const prs = ph(T.rest, t);
+    if (prs > 0) {
+      const a = X0 + 3 * D, b = X0 + U;
+      ctx.save(); ctx.globalAlpha = prs; ctx.setLineDash([5, 4]);
+      seg(a, LY, b, LY, '#4A4F5C', 3, 1, true); ctx.restore();
+      ctx.save(); ctx.globalAlpha = prs; ctx.strokeStyle = '#4A4F5C'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo((a + b) / 2, LY + 10); ctx.lineTo((a + b) / 2 + 30, LY + 58); ctx.stroke(); ctx.restore();
+      label('≈ 0,14 · d', (a + b) / 2 + 30, LY + 74, { alpha: prs, align: 'left', box: true, size: 18 });
+    }
+    // Formeln
+    const f1 = ph(T.f1, t), f2 = ph(T.f2, t), f3 = ph(T.f3, t);
+    const FX = 420, FY = 455;
+    if (f1 > 0) label('U ≈ 3 · d + 0,14 · d ≈ d · 3,14', FX, FY, { alpha: f1, size: 26 });
+    if (f2 > 0) label('U = d · π', FX - 70, FY + 70, { alpha: f2, size: 34, weight: 700, box: true, fill: 'rgba(0,196,255,0.14)', stroke: BLUE });
+    if (f3 > 0) label('U = 2 · r · π', FX + 150, FY + 70, { alpha: f3, size: 34, weight: 700, box: true, fill: 'rgba(0,196,255,0.14)', stroke: BLUE });
+    if (f3 > 0) label('weil d = 2 · r', FX + 150, FY + 122, { alpha: f3, size: 18, color: '#4A4F5C', weight: 500 });
+  }
+
+  // ---------- Rechenschritte ----------
+  const stepsEl = document.getElementById('steps');
+  const lis = STEPS.map(([, html]) => { const li = document.createElement('li'); li.innerHTML = html; stepsEl.appendChild(li); return li; });
+  function updateSteps(t) {
+    let cur = -1;
+    STEPS.forEach(([ts], i) => { const on = t >= ts; lis[i].classList.toggle('shown', on); if (on) cur = i; });
+    lis.forEach((li, i) => li.classList.toggle('current', i === cur));
+  }
+
+  // ---------- Steuerung ----------
+  const playBtn = document.getElementById('play'), restartBtn = document.getElementById('restart');
+  const scrub = document.getElementById('scrub'), timeEl = document.getElementById('time');
+  const TOTAL = T.end;
+  let t = 0, playing = true, last = null;
+  function fitCanvas() { const dpr = Math.min(window.devicePixelRatio || 1, 2); canvas.width = W * dpr; canvas.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  function render() {
+    draw(t); updateSteps(t);
+    scrub.value = Math.round(t / TOTAL * 1000);
+    timeEl.textContent = t.toFixed(1).replace('.', ',') + ' s';
+    playBtn.textContent = playing ? 'Pause' : (t >= TOTAL ? 'Nochmals' : 'Abspielen');
+  }
+  function loop(now) {
+    if (playing) { if (last !== null) t += (now - last) / 1000; if (t >= TOTAL) { t = TOTAL; playing = false; } render(); }
+    last = now; requestAnimationFrame(loop);
+  }
+  playBtn.addEventListener('click', () => { if (!playing && t >= TOTAL) t = 0; playing = !playing; last = null; render(); });
+  restartBtn.addEventListener('click', () => { t = 0; playing = true; last = null; render(); });
+  scrub.addEventListener('input', () => { playing = false; t = scrub.value / 1000 * TOTAL; render(); });
+  window.addEventListener('resize', () => { fitCanvas(); render(); });
+  window.seekTo = s => { playing = false; t = s; render(); };
+  fitCanvas(); render(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
