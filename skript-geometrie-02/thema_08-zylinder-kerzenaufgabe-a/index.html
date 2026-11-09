@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adventskerzen – a) Volumen</title>
+<style>
+  :root { --accent:#00C4FF; --accent-dark:#0090BF; --text:#111318; --muted:#4A4F5C; --line:#D5D9E0; --panel:#F5F8FB; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#FFFFFF; color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:4px 0 2px; font-weight:650; }
+  .sub { color:var(--muted); margin:0 0 14px; font-size:15px; }
+  .grid { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
+  .stage { flex: 999 1 560px; min-width:0; }
+  canvas { display:block; width:100%; height:auto; aspect-ratio: 16 / 10; background:#FFFFFF; border:1px solid var(--line); border-radius:10px; }
+  .panel { flex: 1 1 300px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .panel h2 { font-size:17px; margin:0 0 8px; }
+  .note { font-size:14px; color:var(--muted); margin:0 0 10px; }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:4px; border:1px solid rgba(0,0,0,.25); }
+  ol { margin:0; padding-left:20px; }
+  li { margin:0 0 10px; font-size:16px; line-height:1.45; opacity:0; transform: translateY(4px); transition: opacity .35s, transform .35s; }
+  li.shown { opacity:.75; transform:none; }
+  li.current { opacity:1; }
+  li strong { font-size:17px; }
+  .controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
+  button { font:inherit; font-size:15px; padding:10px 16px; min-height:44px; border-radius:8px; border:1px solid var(--accent-dark); background:var(--accent); color:#002A38; cursor:pointer; }
+  button.secondary { background:#FFFFFF; color:var(--text); border-color:#B8BEC9; }
+  button:focus-visible, input:focus-visible { outline:3px solid var(--accent-dark); outline-offset:2px; }
+  input[type=range] { flex:1 1 200px; accent-color:var(--accent-dark); min-height:44px; }
+  .time { font-variant-numeric: tabular-nums; color:var(--muted); font-size:14px; min-width:7ch; text-align:right; }
+  .sr { position:absolute; left:-9999px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Adventskerzen – a) Volumen</h1>
+  <p class="sub">Alle Kerzen: r = 5 cm</p>
+  <div class="grid">
+    <div class="stage">
+      <canvas id="c" width="960" height="600" aria-label="Animation: Die vier Kerzen werden nacheinander mit Wachs gefüllt, darüber erscheint ihr Volumen"></canvas>
+      <div class="controls">
+        <button id="play" type="button">Pause</button>
+        <button id="restart" type="button" class="secondary">Von vorne</button>
+        <label for="scrub" class="sr">Zeitpunkt</label>
+        <input id="scrub" type="range" min="0" max="1000" value="0">
+        <span class="time" id="time">0,0 s</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Berechnung</h2>
+      <p class="note"><span class="sw" style="background:#FFD640"></span>Gelb: das Volumen füllt sich.</p>
+      <ol id="steps"></ol>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const W = 960, H = 600, S = 14, RX = 70, RY = 21, BASE = 470;
+  const INK = '#111318', OUT = '#3A3F48';
+  const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+  const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
+  const ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const ph = (a, b, t) => ease((t - a) / (b - a));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const fmt = (v, d) => v.toFixed(d).replace('.', ',');
+
+  function tag(str, x, y, alpha, o) {
+    o = o || {};
+    if (alpha <= 0) return;
+    ctx.save(); ctx.globalAlpha = alpha;
+    ctx.font = (o.weight || 600) + ' ' + (o.size || 17) + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle';
+    const s = o.size || 17;
+    if (!o.plain) {
+      const w = ctx.measureText(str).width + 16;
+      const bx = o.align === 'left' ? x - 8 : o.align === 'right' ? x - w + 8 : x - w / 2;
+      ctx.fillStyle = o.fill || 'rgba(255,255,255,0.95)'; ctx.strokeStyle = o.stroke || '#B8BEC9'; ctx.lineWidth = o.stroke ? 2 : 1;
+      ctx.beginPath(); ctx.roundRect(bx, y - s * 0.9, w, s * 1.8, 7); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = o.color || INK; ctx.fillText(str, x, y + 1);
+    ctx.restore();
+  }
+  function plate(cx, rx) {
+    ctx.save();
+    const g = ctx.createRadialGradient(cx - rx * 0.1, BASE, 10, cx, BASE + 8, rx);
+    g.addColorStop(0, '#C9E2B0'); g.addColorStop(0.75, '#A9CB8A'); g.addColorStop(1, '#8DB36E');
+    ctx.beginPath(); ctx.ellipse(cx, BASE + 8, rx, 34, 0, 0, 2 * Math.PI); ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = OUT; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+  }
+  function bodyPath(x, top) {
+    ctx.beginPath(); ctx.moveTo(x - RX, top); ctx.lineTo(x - RX, BASE);
+    ctx.ellipse(x, BASE, RX, RY, 0, Math.PI, 0, true); ctx.lineTo(x + RX, top);
+    ctx.ellipse(x, top, RX, RY, 0, 0, Math.PI, false); ctx.closePath();
+  }
+  // o: alpha, dashed, flame, lid (0..1 blau), mantle (0..1 orange), fill (0..1 Füllstand)
+  function candle(x, hcm, o) {
+    o = o || {};
+    const top = BASE - hcm * S, a = o.alpha == null ? 1 : o.alpha;
+    if (a <= 0) return top;
+    ctx.save(); ctx.globalAlpha = a;
+    if (o.dashed) {
+      bodyPath(x, top); ctx.fillStyle = 'rgba(227,88,88,0.10)'; ctx.fill();
+      ctx.setLineDash([7, 6]); ctx.strokeStyle = '#8A4040'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x, top, RX, RY, 0, 0, 2 * Math.PI); ctx.stroke(); ctx.restore(); return top;
+    }
+    ctx.save(); ctx.filter = 'blur(6px)'; ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.beginPath(); ctx.ellipse(x + 8, BASE + 6, RX + 6, RY * 0.8, 0, 0, 2 * Math.PI); ctx.fill(); ctx.restore();
+    const g = ctx.createLinearGradient(x - RX, 0, x + RX, 0);
+    g.addColorStop(0, '#C93A3A'); g.addColorStop(0.18, '#E35858'); g.addColorStop(0.42, '#F49A9A');
+    g.addColorStop(0.55, '#E86464'); g.addColorStop(0.85, '#C23434'); g.addColorStop(1, '#9E2424');
+    bodyPath(x, top); ctx.fillStyle = g; ctx.fill();
+    if (o.fill > 0) {
+      ctx.save(); bodyPath(x, top); ctx.clip();
+      const ft = BASE - (BASE - top) * o.fill;
+      ctx.fillStyle = 'rgba(255,214,64,0.55)';
+      ctx.beginPath(); ctx.moveTo(x - RX, ft); ctx.lineTo(x - RX, BASE + RY + 2); ctx.lineTo(x + RX, BASE + RY + 2); ctx.lineTo(x + RX, ft);
+      ctx.ellipse(x, ft, RX, RY, 0, 0, Math.PI, false); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(180,120,0,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, ft, RX, RY, 0, 0, Math.PI, false); ctx.stroke();
+      ctx.restore();
+    }
+    if (o.mantle > 0) { bodyPath(x, top); ctx.fillStyle = `rgba(255,150,60,${0.75 * o.mantle})`; ctx.fill(); }
+    bodyPath(x, top); ctx.strokeStyle = OUT; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.stroke();
+    const rg = ctx.createLinearGradient(x - RX, 0, x + RX, 0);
+    rg.addColorStop(0, '#E7A0A0'); rg.addColorStop(0.45, '#FFF0F0'); rg.addColorStop(1, '#C96A6A');
+    ctx.beginPath(); ctx.ellipse(x, top, RX, RY, 0, 0, 2 * Math.PI); ctx.fillStyle = rg; ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(x, top + 1.5, RX - 5, RY - 4, 0, 0, 2 * Math.PI); ctx.fillStyle = '#F2B3B3'; ctx.fill();
+    if (o.lid > 0) {
+      ctx.fillStyle = `rgba(0,170,240,${0.6 * o.lid})`;
+      ctx.beginPath(); ctx.ellipse(x, top, RX, RY, 0, 0, 2 * Math.PI); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, BASE, RX, RY, 0, 0, 2 * Math.PI); ctx.fill();
+      ctx.save(); ctx.strokeStyle = `rgba(0,100,150,${o.lid})`; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.ellipse(x, BASE, RX, RY, 0, Math.PI, 2 * Math.PI); ctx.stroke(); ctx.restore();
+    }
+    if (o.flame !== false) {
+      ctx.strokeStyle = '#2B2B2B'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top - 12); ctx.stroke();
+      const fy = top - 12;
+      const fg = ctx.createLinearGradient(0, fy, 0, fy - 52);
+      fg.addColorStop(0, '#E8590C'); fg.addColorStop(0.5, '#F7A21B'); fg.addColorStop(1, '#FFD54A');
+      ctx.beginPath(); ctx.moveTo(x, fy + 2);
+      ctx.bezierCurveTo(x - 13, fy - 8, x - 10, fy - 30, x + 1, fy - 52);
+      ctx.bezierCurveTo(x + 10, fy - 32, x + 13, fy - 8, x, fy + 2);
+      ctx.fillStyle = fg; ctx.fill(); ctx.strokeStyle = '#B4500F'; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, fy);
+      ctx.bezierCurveTo(x - 5, fy - 6, x - 4, fy - 18, x + 0.5, fy - 28);
+      ctx.bezierCurveTo(x + 4, fy - 18, x + 5, fy - 6, x, fy);
+      ctx.fillStyle = '#FFF4CF'; ctx.fill();
+    }
+    ctx.restore();
+    return top;
+  }
+
+  const SC = {
+  T: 14.5,
+  draw(t) {
+    const hs = [20, 16, 12.8, 10.24], xs = [180, 380, 580, 780], hl = ['20 cm', '16 cm', '12,8 cm', '10,24 cm'];
+    const vs = [1570.80, 1256.64, 1005.31, 804.25];
+    plate(480, 400);
+    const a0 = ph(0, 0.8, t);
+    hs.forEach((h, k) => {
+      const s = 1.5 + 3 * k;
+      const top = candle(xs[k], h, { alpha: a0, fill: ph(s, s + 1.5, t) });
+      tag('V ≈ ' + fmt(vs[k], 2) + ' cm³', xs[k], top - 82, ph(s + 1.4, s + 1.9, t), { size: 16 });
+      tag('h = ' + hl[k], xs[k], BASE + 75, a0, { plain: true, size: 19, weight: 500 });
+    });
+  },
+  steps: [
+    [0.5, 'Formel: V = r² · h · π<br>mit r = 5 cm'],
+    [1.6, 'Kerze 1: V = (5 cm)² · 20 cm · π<br>= 500 cm³ · π ≈ 1570,80 cm³'],
+    [4.6, 'Kerze 2: V = (5 cm)² · 16 cm · π<br>= 400 cm³ · π ≈ 1256,64 cm³'],
+    [7.6, 'Kerze 3: V = (5 cm)² · 12,8 cm · π<br>= 320 cm³ · π ≈ 1005,31 cm³'],
+    [10.6, 'Kerze 4: V = (5 cm)² · 10,24 cm · π<br>= 256 cm³ · π ≈ 804,25 cm³']
+  ]};
+
+  // ---------- Schritte ----------
+  const stepsEl = document.getElementById('steps');
+  const lis = SC.steps.map(([, html]) => { const li = document.createElement('li'); li.innerHTML = html; stepsEl.appendChild(li); return li; });
+  function updateSteps(t) {
+    let cur = -1;
+    SC.steps.forEach(([ts], i) => { const on = t >= ts; lis[i].classList.toggle('shown', on); if (on) cur = i; });
+    lis.forEach((li, i) => li.classList.toggle('current', i === cur));
+  }
+  // ---------- Steuerung ----------
+  const playBtn = document.getElementById('play'), restartBtn = document.getElementById('restart');
+  const scrub = document.getElementById('scrub'), timeEl = document.getElementById('time');
+  const TOTAL = SC.T;
+  let t = 0, playing = true, last = null;
+  function fitCanvas() { const dpr = Math.min(window.devicePixelRatio || 1, 2); canvas.width = W * dpr; canvas.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  function render() {
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+    SC.draw(t); updateSteps(t);
+    scrub.value = Math.round(t / TOTAL * 1000);
+    timeEl.textContent = t.toFixed(1).replace('.', ',') + ' s';
+    playBtn.textContent = playing ? 'Pause' : (t >= TOTAL ? 'Nochmals' : 'Abspielen');
+  }
+  function loop(now) {
+    if (playing) { if (last !== null) t += (now - last) / 1000; if (t >= TOTAL) { t = TOTAL; playing = false; } render(); }
+    last = now; requestAnimationFrame(loop);
+  }
+  playBtn.addEventListener('click', () => { if (!playing && t >= TOTAL) t = 0; playing = !playing; last = null; render(); });
+  restartBtn.addEventListener('click', () => { t = 0; playing = true; last = null; render(); });
+  scrub.addEventListener('input', () => { playing = false; t = scrub.value / 1000 * TOTAL; render(); });
+  window.addEventListener('resize', () => { fitCanvas(); render(); });
+  window.seekTo = s => { playing = false; t = s; render(); };
+  fitCanvas(); render(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
