@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kreisfläche: A = r² · π</title>
+<style>
+  :root { --accent:#00C4FF; --accent-dark:#0090BF; --text:#111318; --muted:#4A4F5C; --line:#D5D9E0; --panel:#F5F8FB; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#FFFFFF; color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:4px 0 14px; font-weight:650; }
+  .grid { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
+  .stage { flex: 999 1 560px; min-width:0; }
+  canvas { display:block; width:100%; height:auto; aspect-ratio: 16 / 10; background:#FFFFFF; border:1px solid var(--line); border-radius:10px; }
+  .panel { flex: 1 1 290px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .panel h2 { font-size:17px; margin:0 0 8px; }
+  .note { font-size:14px; color:var(--muted); margin:0 0 10px; }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:4px; border:1px solid rgba(0,0,0,.25); }
+  ol { margin:0; padding-left:20px; }
+  li { margin:0 0 10px; font-size:16px; line-height:1.45; opacity:0; transform: translateY(4px); transition: opacity .35s, transform .35s; }
+  li.shown { opacity:.75; transform:none; }
+  li.current { opacity:1; }
+  li strong { font-size:18px; }
+  .controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
+  button { font:inherit; font-size:15px; padding:10px 16px; min-height:44px; border-radius:8px; border:1px solid var(--accent-dark); background:var(--accent); color:#002A38; cursor:pointer; }
+  button.secondary { background:#FFFFFF; color:var(--text); border-color:#B8BEC9; }
+  button:focus-visible, input:focus-visible { outline:3px solid var(--accent-dark); outline-offset:2px; }
+  input[type=range] { flex:1 1 200px; accent-color:var(--accent-dark); min-height:44px; }
+  .time { font-variant-numeric: tabular-nums; color:var(--muted); font-size:14px; min-width:7ch; text-align:right; }
+  .sr { position:absolute; left:-9999px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Kreisfläche: A = r² · π</h1>
+  <div class="grid">
+    <div class="stage">
+      <canvas id="c" width="960" height="600" aria-label="Animation: Drei Quadrate mit der Fläche r mal r und ihre überstehenden Ecken füllen den Kreis fast ganz aus, es ergibt sich rund 3,14 mal r hoch 2"></canvas>
+      <div class="controls">
+        <button id="play" type="button">Pause</button>
+        <button id="restart" type="button" class="secondary">Von vorne</button>
+        <label for="scrub" class="sr">Zeitpunkt</label>
+        <input id="scrub" type="range" min="0" max="1000" value="0">
+        <span class="time" id="time">0,0 s</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>So entsteht die Formel</h2>
+      <p class="note"><span class="sw" style="background:#7FE0FF"></span>Quadrat r · r &nbsp; <span class="sw" style="background:#FF8A3D"></span>Überstehende Ecken</p>
+      <ol id="steps"></ol>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const W = 960, H = 600, CX = 290, CY = 315, R = 200;
+  const BLUE = 'rgba(0,196,255,0.45)', BLUE_E = '#0090BF', ORANGE = '#FFA066', ORANGE_E = '#B4500F', INK = '#111318';
+  const FILL = (Math.PI / 4 * 1 - 0) ; // Viertelkreis = π/4 · r²
+  const CORNER = 1 - Math.PI / 4;      // eine Ecke ≈ 0,2146 · r²
+  const FRAC = 3 * CORNER / (Math.PI / 4); // Anteil des 4. Viertels, den die Ecken füllen ≈ 0,82
+  const GAP = Math.PI - 3;             // ≈ 0,1416 · r²
+  const T = { circle:[0.2,1.2], radius:[0.8,1.6], sq1:[1.8,2.8], copy2:[3.2,4.2], copy3:[4.2,5.2],
+              corners:[5.6,6.4], fly0:6.8, flyDur:1.3, flyGap:0.45, gap:[9.6,10.4], sum:[10.6,11.4], pi:[12.2,13.0], end:15.5 };
+  const STEPS = [
+    [0.4, 'Ein Kreis mit dem Radius r.'],
+    [1.9, 'Ein Quadrat mit der Seite r hat die Fläche <br>r · r = r².'],
+    [3.3, 'Wir legen drei solche Quadrate in den Kreis: 3 · r².'],
+    [5.7, 'Die Ecken ragen über den Kreis hinaus (orange).'],
+    [6.9, 'Die drei Ecken werden abgeschnitten und füllen das vierte Viertel.'],
+    [9.7, 'Es fehlt noch ein kleines Stück: etwa 0,14 · r².'],
+    [10.7, 'Zusammen: 3 · r² + 0,14 · r² ≈ r² · 3,14'],
+    [12.3, '<strong>Die Zahl 3,14… heisst π.<br>A = r² · π</strong>']
+  ];
+
+  const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+  const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
+  const ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const ph = (iv, t) => ease((t - iv[0]) / (iv[1] - iv[0]));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const S = (x, y) => [CX + x, CY - y];          // mathematische Koordinaten → Bildschirm
+
+  function pathPts(pts) { ctx.beginPath(); pts.forEach((p, i) => { const s = S(p[0], p[1]); i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); }); ctx.closePath(); }
+  function cornerPts(sx, sy) {
+    const pts = [];
+    for (let i = 0; i <= 40; i++) { const a = i / 40 * Math.PI / 2; pts.push([sx * R * Math.cos(a), sy * R * Math.sin(a)]); }
+    pts.push([sx * R, sy * R]);
+    return pts;
+  }
+  function label(str, x, y, opt) {
+    opt = opt || {};
+    ctx.save(); ctx.globalAlpha = opt.alpha == null ? 1 : opt.alpha;
+    ctx.font = (opt.weight || 600) + ' ' + (opt.size || 22) + 'px ' + (opt.serif ? '"Times New Roman", Georgia, serif' : 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif');
+    if (opt.italic) ctx.font = 'italic ' + ctx.font;
+    ctx.textAlign = opt.align || 'center'; ctx.textBaseline = 'middle';
+    if (opt.box) {
+      const w = ctx.measureText(str).width + 16;
+      const bx = opt.align === 'left' ? x - 8 : opt.align === 'right' ? x - w + 8 : x - w / 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.94)'; ctx.strokeStyle = '#B8BEC9'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(bx, y - 16, w, 32, 7); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = opt.color || INK; ctx.fillText(str, x, y + 1);
+    ctx.restore();
+  }
+  function square(ox, oy, sx, sy, alpha) {          // Quadrat von (ox,oy) mit Seite R in Richtung sx,sy
+    ctx.save(); ctx.globalAlpha = alpha;
+    pathPts([[ox, oy], [ox + sx * R, oy], [ox + sx * R, oy + sy * R], [ox, oy + sy * R]]);
+    ctx.fillStyle = BLUE; ctx.fill(); ctx.strokeStyle = BLUE_E; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw(t) {
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+
+    // --- Kreis ---
+    const pc = ph(T.circle, t);
+    ctx.save(); ctx.strokeStyle = INK; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(CX, CY, R, 0, 2 * Math.PI * pc); ctx.stroke(); ctx.restore();
+    if (pc > 0) { ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(CX, CY, 4.5, 0, 2 * Math.PI); ctx.fill(); }
+
+    // --- Viertel 4: Füllung durch die Ecken und Lücke ---
+    let fillK = 0;
+    for (let k = 0; k < 3; k++) fillK += ph([T.fly0 + k * T.flyGap + T.flyDur * 0.55, T.fly0 + k * T.flyGap + T.flyDur], t) / 3;
+    if (fillK > 0) {
+      ctx.save(); ctx.beginPath(); ctx.moveTo(CX, CY); ctx.arc(CX, CY, R, 0, FRAC * fillK * Math.PI / 2); ctx.closePath();
+      ctx.fillStyle = ORANGE; ctx.fill(); ctx.strokeStyle = ORANGE_E; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+    }
+    const pg = ph(T.gap, t);
+    if (pg > 0) {
+      ctx.save(); ctx.globalAlpha = pg;
+      ctx.beginPath(); ctx.moveTo(CX, CY); ctx.arc(CX, CY, R, FRAC * Math.PI / 2, Math.PI / 2); ctx.closePath();
+      ctx.fillStyle = 'rgba(17,19,24,0.08)'; ctx.fill();
+      ctx.setLineDash([6, 5]); ctx.strokeStyle = '#4A4F5C'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
+      const a = (FRAC + 1) / 2 * Math.PI / 2, px = CX + R * 0.78 * Math.cos(a), py = CY + R * 0.78 * Math.sin(a);
+      ctx.strokeStyle = '#4A4F5C'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(CX + R * 0.95, CY + R * 1.12); ctx.stroke();
+      ctx.restore();
+      label('fehlt: ≈ 0,14 · r²', CX + R * 0.95, CY + R * 1.12 + 6, { alpha: pg, align: 'left', box: true, size: 18 });
+    }
+
+    // --- Quadrate ---
+    const p1 = ph(T.sq1, t), p2 = ph(T.copy2, t), p3 = ph(T.copy3, t);
+    const cut = ph([T.fly0, T.fly0 + 0.3], t);       // ab hier sind die Ecken abgeschnitten
+    function clipCircle(fn) { ctx.save(); if (cut > 0) { ctx.beginPath(); ctx.arc(CX, CY, R, 0, 2 * Math.PI); ctx.clip(); } fn(); ctx.restore(); }
+    if (p1 > 0) clipCircle(() => square(0, 0, 1, 1, p1));
+    if (p2 > 0) clipCircle(() => square(lerp(0, 0, p2), 0, lerp(1, -1, p2), 1, p2));
+    if (p3 > 0) clipCircle(() => square(0, 0, -1, lerp(1, -1, p3), p3));
+
+    // --- Ecken markieren und fliegen lassen ---
+    const pk = ph(T.corners, t);
+    const quads = [[1, 1], [-1, 1], [-1, -1]];
+    quads.forEach(([sx, sy], k) => {
+      if (pk <= 0) return;
+      const f0 = T.fly0 + k * T.flyGap, pf = ph([f0, f0 + T.flyDur], t);
+      if (pf >= 1) return;
+      const c0 = [sx * R * 0.79, sy * R * 0.79];
+      const tgtA = (k + 0.5) / 3 * FRAC * Math.PI / 2;
+      const c1 = [R * 0.55 * Math.cos(tgtA), -R * 0.55 * Math.sin(tgtA)];
+      const dx = lerp(0, c1[0] - c0[0], pf), dy = lerp(0, c1[1] - c0[1], pf), sc = lerp(1, 0.55, pf);
+      const pts = cornerPts(sx, sy).map(p => [c0[0] + (p[0] - c0[0]) * sc + dx, c0[1] + (p[1] - c0[1]) * sc + dy]);
+      ctx.save(); ctx.globalAlpha = pk * (1 - ph([f0 + T.flyDur * 0.6, f0 + T.flyDur], t));
+      pathPts(pts); ctx.fillStyle = ORANGE; ctx.fill(); ctx.strokeStyle = ORANGE_E; ctx.lineWidth = 2; ctx.stroke();
+      ctx.restore();
+    });
+
+    // --- Radius und Beschriftung r ---
+    const pr = ph(T.radius, t), lblFade = 1 - ph([T.copy2[0], T.copy2[0] + 0.5], t) * 0;
+    if (pr > 0) {
+      ctx.save(); ctx.strokeStyle = '#C23F1C'; ctx.lineWidth = 3.5; ctx.beginPath();
+      const a = S(0, 0), b = S(R * pr, 0); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.restore();
+      label('r', CX + R / 2, CY + 20, { alpha: pr, color: '#C23F1C', serif: true, italic: true, size: 30, weight: 400 });
+    }
+    if (p1 > 0) {
+      ctx.save(); ctx.globalAlpha = p1; ctx.strokeStyle = '#C23F1C'; ctx.lineWidth = 3.5; ctx.beginPath();
+      ctx.moveTo(CX, CY); ctx.lineTo(CX, CY - R); ctx.stroke(); ctx.restore();
+      label('r', CX - 18, CY - R / 2, { alpha: p1, color: '#C23F1C', serif: true, italic: true, size: 30, weight: 400 });
+      label('r²', CX + R / 2, CY - R / 2 + 10, { alpha: p1, serif: true, italic: true, size: 34, weight: 400 });
+    }
+    if (p2 > 0) label('r²', CX - R / 2, CY - R / 2 + 10, { alpha: p2, serif: true, italic: true, size: 34, weight: 400 });
+    if (p3 > 0) label('r²', CX - R / 2, CY + R / 2 - 10, { alpha: p3, serif: true, italic: true, size: 34, weight: 400 });
+
+    // --- Zählbereich rechts ---
+    const bx = 590, by = 150, bs = 64, gap = 14;
+    const shown = [p1, p2, p3];
+    shown.forEach((p, i) => {
+      if (p <= 0) return;
+      const x = bx + i * (bs + gap);
+      ctx.save(); ctx.globalAlpha = p; ctx.fillStyle = BLUE; ctx.strokeStyle = BLUE_E; ctx.lineWidth = 2;
+      ctx.fillRect(x, by, bs, bs); ctx.strokeRect(x, by, bs, bs); ctx.restore();
+      label('r²', x + bs / 2, by + bs / 2, { alpha: p, serif: true, italic: true, size: 24, weight: 400 });
+    });
+    const ps = ph(T.sum, t);
+    if (ps > 0) {
+      const x = bx + 3 * (bs + gap);
+      ctx.save(); ctx.globalAlpha = ps;
+      ctx.setLineDash([5, 4]); ctx.strokeStyle = '#4A4F5C'; ctx.lineWidth = 1.5; ctx.strokeRect(x, by, bs, bs); ctx.setLineDash([]);
+      ctx.fillStyle = BLUE; ctx.fillRect(x, by, bs * GAP * ps, bs); ctx.strokeStyle = BLUE_E; ctx.lineWidth = 2; ctx.strokeRect(x, by, bs * GAP, bs);
+      ctx.restore();
+      label('0,14', x + bs / 2 + 6, by + bs + 22, { alpha: ps, size: 16, color: '#4A4F5C', weight: 500 });
+      label('3 · r²  +  0,14 · r²', bx + (4 * bs + 3 * gap) / 2, by + bs + 74, { alpha: ps, size: 24 });
+      label('≈ r² · 3,14', bx + (4 * bs + 3 * gap) / 2, by + bs + 118, { alpha: ps, size: 26 });
+    }
+    if (p1 > 0 && ps <= 0) {
+      const n = p3 > 0.5 ? 3 : p2 > 0.5 ? 2 : 1;
+      label(n === 1 ? '1 · r²' : n + ' · r²', bx + (3 * bs + 2 * gap) / 2, by + bs + 40, { alpha: p1, size: 24 });
+    }
+    const pp = ph(T.pi, t);
+    if (pp > 0) {
+      const cx = bx + (4 * bs + 3 * gap) / 2, cy = by + bs + 190;
+      ctx.save(); ctx.globalAlpha = pp;
+      ctx.fillStyle = 'rgba(0,196,255,0.14)'; ctx.strokeStyle = BLUE_E; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(cx - 150, cy - 36, 300, 72, 12); ctx.fill(); ctx.stroke(); ctx.restore();
+      label('A = r² · π', cx, cy, { alpha: pp, size: 36, weight: 700 });
+      label('π ≈ 3,14', cx, cy + 64, { alpha: pp, size: 20, color: '#4A4F5C', weight: 500 });
+      ctx.save(); ctx.globalAlpha = pp * 0.9; ctx.strokeStyle = BLUE_E; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(CX, CY, R, 0, 2 * Math.PI); ctx.stroke(); ctx.restore();
+    }
+  }
+
+  // ---------- Rechenschritte ----------
+  const stepsEl = document.getElementById('steps');
+  const lis = STEPS.map(([, html]) => { const li = document.createElement('li'); li.innerHTML = html; stepsEl.appendChild(li); return li; });
+  function updateSteps(t) {
+    let cur = -1;
+    STEPS.forEach(([ts], i) => { const on = t >= ts; lis[i].classList.toggle('shown', on); if (on) cur = i; });
+    lis.forEach((li, i) => li.classList.toggle('current', i === cur));
+  }
+
+  // ---------- Steuerung ----------
+  const playBtn = document.getElementById('play'), restartBtn = document.getElementById('restart');
+  const scrub = document.getElementById('scrub'), timeEl = document.getElementById('time');
+  const TOTAL = T.end;
+  let t = 0, playing = true, last = null;
+  function fitCanvas() { const dpr = Math.min(window.devicePixelRatio || 1, 2); canvas.width = W * dpr; canvas.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  function render() {
+    draw(t); updateSteps(t);
+    scrub.value = Math.round(t / TOTAL * 1000);
+    timeEl.textContent = t.toFixed(1).replace('.', ',') + ' s';
+    playBtn.textContent = playing ? 'Pause' : (t >= TOTAL ? 'Nochmals' : 'Abspielen');
+  }
+  function loop(now) {
+    if (playing) { if (last !== null) t += (now - last) / 1000; if (t >= TOTAL) { t = TOTAL; playing = false; } render(); }
+    last = now; requestAnimationFrame(loop);
+  }
+  playBtn.addEventListener('click', () => { if (!playing && t >= TOTAL) t = 0; playing = !playing; last = null; render(); });
+  restartBtn.addEventListener('click', () => { t = 0; playing = true; last = null; render(); });
+  scrub.addEventListener('input', () => { playing = false; t = scrub.value / 1000 * TOTAL; render(); });
+  window.addEventListener('resize', () => { fitCanvas(); render(); });
+  window.seekTo = s => { playing = false; t = s; render(); };
+  fitCanvas(); render(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
