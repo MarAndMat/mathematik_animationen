@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zylindervolumen: V = r² · h · π</title>
+<style>
+  :root { --accent:#00C4FF; --accent-dark:#0090BF; --text:#111318; --muted:#4A4F5C; --line:#D5D9E0; --panel:#F5F8FB; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#FFFFFF; color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:4px 0 14px; font-weight:650; }
+  .grid { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
+  .stage { flex: 999 1 560px; min-width:0; }
+  canvas { display:block; width:100%; height:auto; aspect-ratio: 16 / 10; background:#FFFFFF; border:1px solid var(--line); border-radius:10px; }
+  .panel { flex: 1 1 290px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .panel h2 { font-size:17px; margin:0 0 8px; }
+  .note { font-size:14px; color:var(--muted); margin:0 0 10px; }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:4px; border:1px solid rgba(0,0,0,.25); }
+  ol { margin:0; padding-left:20px; }
+  li { margin:0 0 10px; font-size:16px; line-height:1.45; opacity:0; transform: translateY(4px); transition: opacity .35s, transform .35s; }
+  li.shown { opacity:.75; transform:none; }
+  li.current { opacity:1; }
+  li strong { font-size:18px; }
+  .controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
+  button { font:inherit; font-size:15px; padding:10px 16px; min-height:44px; border-radius:8px; border:1px solid var(--accent-dark); background:var(--accent); color:#002A38; cursor:pointer; }
+  button.secondary { background:#FFFFFF; color:var(--text); border-color:#B8BEC9; }
+  button:focus-visible, input:focus-visible { outline:3px solid var(--accent-dark); outline-offset:2px; }
+  input[type=range] { flex:1 1 200px; accent-color:var(--accent-dark); min-height:44px; }
+  .time { font-variant-numeric: tabular-nums; color:var(--muted); font-size:14px; min-width:7ch; text-align:right; }
+  .sr { position:absolute; left:-9999px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Zylindervolumen: V = r² · h · π</h1>
+  <div class="grid">
+    <div class="stage">
+      <canvas id="c" width="960" height="600" aria-label="Animation: Die Grundfläche wird zu einem Zylinder nach oben gezogen, das Volumen ist Grundfläche mal Höhe"></canvas>
+      <div class="controls">
+        <button id="play" type="button">Pause</button>
+        <button id="restart" type="button" class="secondary">Von vorne</button>
+        <label for="scrub" class="sr">Zeitpunkt</label>
+        <input id="scrub" type="range" min="0" max="1000" value="0">
+        <span class="time" id="time">0,0 s</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>So entsteht die Formel</h2>
+      <p class="note"><span class="sw" style="background:#7FE0FF"></span>Grundfläche G &nbsp; <span class="sw" style="background:#1D9E75"></span>Höhe h</p>
+      <ol id="steps"></ol>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const W = 960, H = 600, CX = 290, BY = 500, RX = 150, RY = 46, HT = 300, N = 10, LT = HT / N;
+  const BLUE_E = '#0090BF', INK = '#111318', GREEN = '#0F6E56', RED = '#C23F1C';
+  const T = { base:[0.2,1.2], radius:[1.0,1.7], fill:[1.6,2.4], grow:[3.0,7.0], hdim:[2.8,3.2], f1:[7.6,8.3], f2:[9.0,9.7], end:13 };
+  const STEPS = [
+    [0.4, 'Die Grundfläche ist ein Kreis mit dem Radius r.'],
+    [1.7, 'Ihr Flächeninhalt: G = r² · π'],
+    [3.0, 'Die Grundfläche wird gleichmässig nach oben gezogen.'],
+    [7.1, 'So entsteht ein Zylinder mit der Höhe h.'],
+    [7.6, 'Volumen = Grundfläche · Höhe<br>V = G · h'],
+    [9.0, '<strong>Für G setzen wir r² · π ein:<br>V = r² · h · π</strong>']
+  ];
+  const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+  const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
+  const ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const ph = (iv, t) => ease((t - iv[0]) / (iv[1] - iv[0]));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  function label(str, x, y, opt) {
+    opt = opt || {};
+    ctx.save(); ctx.globalAlpha = opt.alpha == null ? 1 : opt.alpha;
+    let f = (opt.weight || 600) + ' ' + (opt.size || 22) + 'px ' + (opt.serif ? '"Times New Roman", Georgia, serif' : 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif');
+    if (opt.italic) f = 'italic ' + f;
+    ctx.font = f; ctx.textAlign = opt.align || 'center'; ctx.textBaseline = 'middle';
+    if (opt.box) {
+      const w = ctx.measureText(str).width + 20, s = opt.size || 22;
+      const bx = opt.align === 'left' ? x - 10 : opt.align === 'right' ? x - w + 10 : x - w / 2;
+      ctx.fillStyle = opt.fill || 'rgba(255,255,255,0.94)'; ctx.strokeStyle = opt.stroke || '#B8BEC9'; ctx.lineWidth = opt.stroke ? 2 : 1;
+      ctx.beginPath(); ctx.roundRect(bx, y - s * 0.95, w, s * 1.9, 9); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = opt.color || INK; ctx.fillText(str, x, y + 1);
+    ctx.restore();
+  }
+  let hatch = null;
+  function getHatch() {
+    if (hatch) return hatch;
+    const p = document.createElement('canvas'); p.width = p.height = 12;
+    const g = p.getContext('2d'); g.strokeStyle = 'rgba(0,144,191,0.55)'; g.lineWidth = 1.4;
+    g.beginPath(); g.moveTo(0, 12); g.lineTo(12, 0); g.moveTo(-3, 3); g.lineTo(3, -3); g.moveTo(9, 15); g.lineTo(15, 9); g.stroke();
+    hatch = ctx.createPattern(p, 'repeat'); return hatch;
+  }
+  function sideGrad(y0, y1) {
+    const g = ctx.createLinearGradient(CX - RX, 0, CX + RX, 0);
+    g.addColorStop(0, '#2FA9D6'); g.addColorStop(0.35, '#8FE3FF'); g.addColorStop(0.55, '#4CC6EE'); g.addColorStop(1, '#127BA3');
+    return g;
+  }
+  function disc(yb, yt, alpha, edge, topFill) {     // Scheibe von yb (unten) bis yt (oben)
+    ctx.save(); ctx.globalAlpha = alpha;
+    ctx.beginPath(); ctx.moveTo(CX - RX, yt); ctx.lineTo(CX - RX, yb);
+    ctx.ellipse(CX, yb, RX, RY, 0, Math.PI, 0, true); ctx.lineTo(CX + RX, yt);
+    ctx.ellipse(CX, yt, RX, RY, 0, 0, Math.PI, false); ctx.closePath();
+    ctx.fillStyle = sideGrad(); ctx.fill();
+    if (edge > 0) { ctx.strokeStyle = `rgba(11,58,82,${edge})`; ctx.lineWidth = 1.6; ctx.stroke(); }
+    if (topFill) {
+      ctx.beginPath(); ctx.ellipse(CX, yt, RX, RY, 0, 0, 2 * Math.PI);
+      ctx.fillStyle = '#C9F1FF'; ctx.fill(); ctx.fillStyle = getHatch(); ctx.fill();
+      ctx.strokeStyle = '#0B3A52'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function draw(t) {
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+    // Grundfläche
+    const pb = ph(T.base, t), pf = ph(T.fill, t);
+    ctx.save(); ctx.beginPath(); ctx.ellipse(CX, BY, RX, RY, 0, 0, 2 * Math.PI);
+    if (pf > 0) { ctx.globalAlpha = pf; ctx.fillStyle = '#C9F1FF'; ctx.fill(); ctx.fillStyle = getHatch(); ctx.fill(); ctx.globalAlpha = 1; }
+    ctx.restore();
+    ctx.save(); ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(CX, BY, RX, RY, 0, 0, 2 * Math.PI * pb); ctx.stroke(); ctx.restore();
+
+    // Zylinder wächst
+    const pg = ph(T.grow, t), top = BY - HT * pg;
+    if (pg > 0) {
+      disc(BY, top, 1, 1, true);
+      if (pg > 0.05) { ctx.save(); ctx.globalAlpha = Math.min(1, pg * 4) * 0.6; ctx.strokeStyle = '#0B3A52'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+        ctx.beginPath(); ctx.ellipse(CX, BY, RX, RY, 0, Math.PI, 2 * Math.PI); ctx.stroke(); ctx.restore(); }
+    }
+    // Radius + G (wandern mit der Deckfläche)
+    const pr = ph(T.radius, t);
+    if (pr > 0) {
+      ctx.save(); ctx.globalAlpha = pr; ctx.strokeStyle = RED; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(CX, top); ctx.lineTo(CX + RX * pr, top); ctx.stroke();
+      ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(CX, top, 4.5, 0, 2 * Math.PI); ctx.fill(); ctx.restore();
+      label('r', CX + RX / 2, top - 18, { alpha: pr, color: RED, serif: true, italic: true, size: 30, weight: 400 });
+    }
+    if (pf > 0) label('G = r² · π', CX - RX - 26, top, { alpha: pf, align: 'right', size: 22, box: true });
+    // Höhe (wächst mit)
+    const ph2 = ph(T.hdim, t);
+    if (ph2 > 0 && pg > 0) {
+      const x = CX + RX + 34;
+      ctx.save(); ctx.globalAlpha = ph2; ctx.strokeStyle = GREEN; ctx.lineWidth = 2.5; ctx.beginPath();
+      ctx.moveTo(x, BY); ctx.lineTo(x, top); ctx.moveTo(x - 9, BY); ctx.lineTo(x + 9, BY); ctx.moveTo(x - 9, top); ctx.lineTo(x + 9, top); ctx.stroke();
+      ctx.setLineDash([3, 4]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(CX + RX + 4, BY); ctx.lineTo(x - 10, BY); ctx.moveTo(CX + RX + 4, top); ctx.lineTo(x - 10, top); ctx.stroke(); ctx.restore();
+      if (pg > 0.15) label('h', x + 22, (BY + top) / 2, { alpha: ph2, color: GREEN, serif: true, italic: true, size: 32, weight: 400 });
+    }
+    // Rechte Seite
+    const RXp = 720;
+    const f1 = ph(T.f1, t), f2 = ph(T.f2, t);
+    if (f1 > 0) {
+      label('Volumen = Grundfläche · Höhe', RXp, 170, { alpha: f1, size: 20, color: '#4A4F5C', weight: 500 });
+      label('V = G · h', RXp, 225, { alpha: f1, size: 34, weight: 700 });
+    }
+    if (f2 > 0) {
+      ctx.save(); ctx.globalAlpha = f2; ctx.strokeStyle = '#9AA0AA'; ctx.lineWidth = 1.5; ctx.beginPath();
+      ctx.moveTo(RXp - 22, 255); ctx.lineTo(RXp - 22, 300); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(RXp - 29, 292); ctx.lineTo(RXp - 22, 302); ctx.lineTo(RXp - 15, 292); ctx.stroke(); ctx.restore();
+      label('G = r² · π', RXp + 50, 278, { alpha: f2, size: 18, color: '#4A4F5C', weight: 500 });
+      label('V = r² · h · π', RXp, 345, { alpha: f2, size: 38, weight: 700, box: true, fill: 'rgba(0,196,255,0.14)', stroke: BLUE_E });
+    }
+  }
+
+  // ---------- Rechenschritte ----------
+  const stepsEl = document.getElementById('steps');
+  const lis = STEPS.map(([, html]) => { const li = document.createElement('li'); li.innerHTML = html; stepsEl.appendChild(li); return li; });
+  function updateSteps(t) {
+    let cur = -1;
+    STEPS.forEach(([ts], i) => { const on = t >= ts; lis[i].classList.toggle('shown', on); if (on) cur = i; });
+    lis.forEach((li, i) => li.classList.toggle('current', i === cur));
+  }
+
+  // ---------- Steuerung ----------
+  const playBtn = document.getElementById('play'), restartBtn = document.getElementById('restart');
+  const scrub = document.getElementById('scrub'), timeEl = document.getElementById('time');
+  const TOTAL = T.end;
+  let t = 0, playing = true, last = null;
+  function fitCanvas() { const dpr = Math.min(window.devicePixelRatio || 1, 2); canvas.width = W * dpr; canvas.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  function render() {
+    draw(t); updateSteps(t);
+    scrub.value = Math.round(t / TOTAL * 1000);
+    timeEl.textContent = t.toFixed(1).replace('.', ',') + ' s';
+    playBtn.textContent = playing ? 'Pause' : (t >= TOTAL ? 'Nochmals' : 'Abspielen');
+  }
+  function loop(now) {
+    if (playing) { if (last !== null) t += (now - last) / 1000; if (t >= TOTAL) { t = TOTAL; playing = false; } render(); }
+    last = now; requestAnimationFrame(loop);
+  }
+  playBtn.addEventListener('click', () => { if (!playing && t >= TOTAL) t = 0; playing = !playing; last = null; render(); });
+  restartBtn.addEventListener('click', () => { t = 0; playing = true; last = null; render(); });
+  scrub.addEventListener('input', () => { playing = false; t = scrub.value / 1000 * TOTAL; render(); });
+  window.addEventListener('resize', () => { fitCanvas(); render(); });
+  window.seekTo = s => { playing = false; t = s; render(); };
+  fitCanvas(); render(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
